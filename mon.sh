@@ -2,23 +2,44 @@
 
 set -eu
 
+output_option=false
+output_file=""
+
 help() {
 cat << EOF
 Description:
   This programm is using for system monitoring purposes
 
-Usage: mon.sh [OPTIONS]
+Usage: ./mon.sh [OPTIONS]
 
 OPTIONS:
-  -p,   --proc                          Info about /proc/...
-  -c,   --cpu                           Info about processor
-  -m,   --memory                        Info about memory
+  -p,   --proc                          Info from proc folder
+  -c,   --cpu                           Info about CPU
+  -m,   --memory                        Info about RAM
+    suboptions:
+    - total                             Total physical memory on the server
+    - used                              Amount of used memory
+    - free                              Amount of free memory
+    - shared                            Amount of memory used by filesystem
+    - available                         Available memory for using
   -d,   --disks                         Info about disk memory
   -n,   --network                       Info about network
   -la,  --loadaverage                   Info about system loadaverage
   -k,   --kill                          Send kill signal to process
   -o,   --output                        Save script results to the disk
   -h,   --help                          Help
+
+  Examples:
+
+  1. For display "cpuinfo" information
+      ./mon.sh -p cpuinfo
+      or
+      ./mon.sh --proc cpuinfo
+
+  2. For display amount of memory space used by filesystem and out to file with name free_mem.txt
+      ./mon.sh -m shared -o shared_mem.txt
+      or
+      ./mon.sh -o shared_mem.txt --memory shared
 EOF
 }
 
@@ -54,42 +75,54 @@ fail() {
 # Функция вывода параметров директории memory
 memory_f () {
 	opt=$1  # Переменная дополнительной опции после memory
-        if [ -z $opt ]
-            then
-               {
-                free
-               }
-            else
-               {
-               case $opt in
-                  total) {
-                          free | awk -F " " '{ if ($1 == "Mem:") print "Всего доступно физической памяти на сервере: "$2 " КБ" }'
-                        };;
-                  used) {
-                          free | awk -F " " '{ if ($1 == "Mem:") print "Использовано памяти: "$3 " КБ"}'
-                        };;
-                  free) {
-                          free | awk -F " " '{ if ($1 == "Mem:") print "Свободно памяти: "$4 " КБ"}'
-                        };;
-                  shared) {
-                          free | awk -F " " '{ if ($1 == "Mem:") print "Использовано памяти файловой системой: = "$5 " КБ" }'
-                        };;
-                  available) {
-                          free | awk -F " " '{ if ($1 == "Mem:") print "Памяти доступно к использованию: "$7 " КБ"}'
-                        };;
-                  *) out_check_opt;;
-               esac
-        }
-      fi
+     case $opt in
+        total) {
+                free | awk -F " " '{ if ($1 == "Mem:") print "Всего доступно физической памяти на сервере: "$2 " КБ" }'
+              };;
+        used) {
+                free | awk -F " " '{ if ($1 == "Mem:") print "Использовано памяти: "$3 " КБ"}'
+              };;
+        free) {
+                free | awk -F " " '{ if ($1 == "Mem:") print "Свободно памяти: "$4 " КБ"}'
+              };;
+        shared) {
+                free | awk -F " " '{ if ($1 == "Mem:") print "Использовано памяти файловой системой: = "$5 " КБ" }'
+              };;
+        available) {
+                free | awk -F " " '{ if ($1 == "Mem:") print "Памяти доступно к использованию: "$7 " КБ"}'
+              };;
+        *) out_check_opt;;
+     esac
 }
 #----------------------------------------------
-# Функция вывода параметров процессора !
+# Функция вывода параметров процессора
 cpu_f () {
-opt=$1 # Переменная дополнительной опции после cpu
-
+opt=$1
+     case $opt in
+        load) {
+                cpu_load=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}')
+                echo "CPU Load: ${cpu_load}%"
+              };;
+        model) {
+                echo "Model name: $(lscpu | grep "Model:" | awk -F ": " '{print $2}')"
+              };;
+        arch) {
+                echo "Architecture: $(uname -m)"
+              };;
+        cores) {
+                echo "CPU cores: $(lscpu | grep "CPU(s):" | awk '{print $2}')"
+              };;
+        freq) {
+                echo "CPU frequency: $(lscpu | grep "CPU MHz:" | awk '{print $3}') MHz"
+              };;
+        cache) {
+                echo "Cache size: $(lscpu | grep "L3 cache:" | awk '{print $3, $4}')"
+              };;
+        *) out_check_opt;;
+     esac
 }
 #---------------------------------------------
-if [ -z $1 ] || [ $1 = '--help' ] || [ $1 = '-h' ]
+if [ -z "${1+x}" ] || [ $1 = '--help' ] || [ $1 = '-h' ]
 then
 	{
 	help;
@@ -99,24 +132,8 @@ else
 
   PARAMS=""
 
-# Проверка наличия опции вывода в файл -o
-output_option=false
-output_file=""
-
-#if [[ "$@" == *"-o"* ]]; then
-#  output_option=true
-#  output_file_index=$(echo "$@" | grep -n -e '-o' | cut -d':' -f1)
-#  output_file="${@:output_file_index+1:1}"
-#  echo $output_file_index
-#  echo $output_file
-#  if [[ "$output_file" == -* ]]; then
-#    echo "Error: Missing output file parameter for -o option" >&2
-#    exit 1
-#  fi
-#fi
-
 for (( i=1; i<=$#; i++ )); do
-  if [[ "${!i}" == "-o" ]] && (( i+1 <= $# )); then
+  if ([[ "${!i}" == "-o" ]] || [[ "${!i}" == "--output" ]]) && (( i+1 <= $# )); then
     output_option=true
     eval "output_file=\${$((i+1))}"
     break
@@ -130,9 +147,8 @@ done
           if test -e "/proc/$2"; then
             if [ "$output_option" = true ]; then
               if [ -n "$output_file" ]; then
-                 echo "/proc/$2 OUTPUT:"
+                 echo "/proc/$2 OUTPUT:" >> "$output_file"
                  info "$(cat /proc/$2)" >> "$output_file"
-                 success "Результат сохранен в файл: $output_file"
               else
                 echo "Error: Missing output file parameter for -o option" >&2
                 exit 1
@@ -147,28 +163,53 @@ done
           fi
           shift 2
         else
-            fail "Error: Missing /proc/ parameter" >&2
-            exit 1
+            echo "/proc/ OUTPUT:"
+            ls -la /proc/
+            shift 1
         fi
         ;;
 
       -m|--memory)
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
-          memory_f $2
+          if [ "$output_option" = true ]; then
+            if [ -n "$output_file" ]; then
+               echo "memory $2 OUTPUT:" >> "$output_file"
+               info "$(memory_f $2)" >> "$output_file"
+            else
+              echo "Error: Missing output file parameter for -o option" >&2
+              exit 1
+            fi
+          else
+            echo "Memory $2 OUTPUT:"
+            info "$(memory_f $2)"
+          fi
           shift 2
         else
-          echo "Error: Missing memory parameter" >&2
-          exit 1
+          echo "Memory status:"
+          echo "$(free)"
+          shift 1
         fi
         ;;
 
       -c|--cpu)
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
-          cpu_f $2
+          if [ "$output_option" = true ]; then
+            if [ -n "$output_file" ]; then
+               echo "CPU $2 OUTPUT:" >> "$output_file"
+               info "$(cpu_f $2)" >> "$output_file"
+            else
+              echo "Error: Missing output file parameter for -o option" >&2
+              exit 1
+            fi
+          else
+            echo "CPU $2 OUTPUT:"
+            info "$(cpu_f $2)"
+          fi
           shift 2
         else
-          echo "Error: Missing cpu parameter" >&2
-          exit 1
+          echo "CPU information:"
+          info "$(lscpu)"
+          shift 1
         fi
         ;;
 
@@ -204,7 +245,7 @@ done
 
       -k | --kill)
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
-          loadaverage_f $2
+          kill_f $2
           shift 2
         else
           echo "Error: Missing kill process parameter" >&2
@@ -224,6 +265,11 @@ done
   done
 
   eval set -- "$PARAMS"
+
+  if [ -n "$output_file" ]; then
+     success "Результат сохранен в файл: $output_file"
+  fi
+
+  success "Done!"
   }
 fi
-success "Done!"
