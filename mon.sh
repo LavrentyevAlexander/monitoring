@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# This script uses for server monitoring purposes
+
 set -eu
 
 output_option=false
@@ -15,14 +17,29 @@ Usage: ./mon.sh [OPTIONS]
 OPTIONS:
   -p,   --proc                          Info from proc folder
   -c,   --cpu                           Info about CPU
+    suboptions:
+    - load                              CPU load
+    - freq                              CPU Frequency
+    - arch                              CPU Architecture
+    - temp                              CPU Temperature
+    - usage                             CPU Core usage
+    - cache                             CPU Cache size
+    - inter                             CPU Interrupts
   -m,   --memory                        Info about RAM
     suboptions:
     - total                             Total physical memory on the server
-    - used                              Amount of used memory
-    - free                              Amount of free memory
-    - shared                            Amount of memory used by filesystem
+    - used                              Size of used memory
+    - free                              Size of free memory
+    - shared                            Size of memory used by filesystem
     - available                         Available memory for using
   -d,   --disks                         Info about disk memory
+    suboptions:
+    - load                              Disk load
+    - space                             Disk available space
+    - latency                           Disk latency
+    - errors                            Disk errors
+    - cache                             Disk cache utilization
+    - temp                              Disk temperature
   -n,   --network                       Info about network
   -la,  --loadaverage                   Info about system loadaverage
   -k,   --kill                          Send kill signal to process
@@ -72,30 +89,30 @@ fail() {
   fi
 }
 #---------------------------------------------
-# Функция вывода параметров директории memory
+# Function for output information about memory
 memory_f () {
-	opt=$1  # Переменная дополнительной опции после memory
+	opt=$1
      case $opt in
         total) {
-                free | awk -F " " '{ if ($1 == "Mem:") print "Всего доступно физической памяти на сервере: "$2 " КБ" }'
+                free | awk -F " " '{ if ($1 == "Mem:") print "Available physical server memory: "$2 " KB" }'
               };;
         used) {
-                free | awk -F " " '{ if ($1 == "Mem:") print "Использовано памяти: "$3 " КБ"}'
+                free | awk -F " " '{ if ($1 == "Mem:") print "Memory used: "$3 " KB"}'
               };;
         free) {
-                free | awk -F " " '{ if ($1 == "Mem:") print "Свободно памяти: "$4 " КБ"}'
+                free | awk -F " " '{ if ($1 == "Mem:") print "Free memory: "$4 " KB"}'
               };;
         shared) {
-                free | awk -F " " '{ if ($1 == "Mem:") print "Использовано памяти файловой системой: = "$5 " КБ" }'
+                free | awk -F " " '{ if ($1 == "Mem:") print "Memory used by filesystem: = "$5 " KB" }'
               };;
         available) {
-                free | awk -F " " '{ if ($1 == "Mem:") print "Памяти доступно к использованию: "$7 " КБ"}'
+                free | awk -F " " '{ if ($1 == "Mem:") print "Available memory: "$7 " KB"}'
               };;
         *) out_check_opt;;
      esac
 }
 #----------------------------------------------
-# Функция вывода параметров процессора
+# Function for output information about CPU
 cpu_f () {
 opt=$1
      case $opt in
@@ -103,20 +120,127 @@ opt=$1
                 cpu_load=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}')
                 echo "CPU Load: ${cpu_load}%"
               };;
-        model) {
-                echo "Model name: $(lscpu | grep "Model:" | awk -F ": " '{print $2}')"
+        freq) {
+                echo "CPU Frequency: $(lscpu | grep "CPU MHz" | awk '{print $3}') MHz"
               };;
         arch) {
-                echo "Architecture: $(uname -m)"
+                echo "CPU Architecture: $(uname -m)"
               };;
-        cores) {
-                echo "CPU cores: $(lscpu | grep "CPU(s):" | awk '{print $2}')"
+        temp) {
+                echo "CPU Temperature: $(sensors | grep "Core 0" | awk '{print $3}')"
               };;
-        freq) {
-                echo "CPU frequency: $(lscpu | grep "CPU MHz:" | awk '{print $3}') MHz"
+        usage) {
+                echo "CPU Core usage: $(top -bn1 | grep "Cpu(s)")"
               };;
         cache) {
-                echo "Cache size: $(lscpu | grep "L3 cache:" | awk '{print $3, $4}')"
+                echo "CPU Cache size: $(lscpu | grep "L3 cache" | awk '{print $3, $4}')"
+              };;
+        inter) {
+                echo "CPU Interrupts: $(cat /proc/interrupts | grep -v CPU)"
+              };;
+        *) out_check_opt;;
+     esac
+}
+#---------------------------------------------
+# Function for output information about DISK system
+disk_f () {
+opt=$1
+     case $opt in
+        load) {
+                echo "Disk Load: $(iostat -d | grep 'sda' | awk '{print $2}')" # sudo apt install sysstat
+              };;
+        space) {
+                echo "Available disk space: $(df -h | grep '/dev/sda1' | awk '{print $4}')"
+              };;
+        latency) {
+                echo "Disk Latency: $(iostat -d | grep 'sda' | awk '{print $10}')" # sudo apt install sysstat
+              };;
+        errors) {
+                echo "Disk Errors: $(smartctl -a /dev/sda | grep 'Errors' | awk '{print $2}')" # sudo apt install smartmontools
+              };;
+        cache) {
+                echo "Disk Cache Utilization: $(cat /proc/meminfo | grep 'Cached:' | awk '{print $2}')"
+              };;
+        temp) {
+                echo "Disk Temperature: $(smartctl -a /dev/sda | grep 'Temperature' | awk '{print $10}')" # sudo apt install smartmontools
+              };;
+        *) out_check_opt;;
+     esac
+}
+#---------------------------------------------
+# Function for output information about Network interfaces - Fill
+network_f () {
+opt=$1
+     case $opt in
+        load) {
+                echo "Disk Load: $(iostat -d | grep 'sda' | awk '{print $2}')" # sudo apt install sysstat
+              };;
+        space) {
+                echo "Available disk space: $(df -h | grep '/dev/sda1' | awk '{print $4}')"
+              };;
+        latency) {
+                echo "Disk Latency: $(iostat -d | grep 'sda' | awk '{print $10}')" # sudo apt install sysstat
+              };;
+        errors) {
+                echo "Disk Errors: $(smartctl -a /dev/sda | grep 'Errors' | awk '{print $2}')" # sudo apt install smartmontools
+              };;
+        cache) {
+                echo "Disk Cache Utilization: $(cat /proc/meminfo | grep 'Cached:' | awk '{print $2}')"
+              };;
+        temp) {
+                echo "Disk Temperature: $(smartctl -a /dev/sda | grep 'Temperature' | awk '{print $10}')" # sudo apt install smartmontools
+              };;
+        *) out_check_opt;;
+     esac
+}
+#---------------------------------------------
+# Function for output information about System Loadaverage - Fill
+loadaverage_f () {
+opt=$1
+     case $opt in
+        load) {
+                echo "Disk Load: $(iostat -d | grep 'sda' | awk '{print $2}')" # sudo apt install sysstat
+              };;
+        space) {
+                echo "Available disk space: $(df -h | grep '/dev/sda1' | awk '{print $4}')"
+              };;
+        latency) {
+                echo "Disk Latency: $(iostat -d | grep 'sda' | awk '{print $10}')" # sudo apt install sysstat
+              };;
+        errors) {
+                echo "Disk Errors: $(smartctl -a /dev/sda | grep 'Errors' | awk '{print $2}')" # sudo apt install smartmontools
+              };;
+        cache) {
+                echo "Disk Cache Utilization: $(cat /proc/meminfo | grep 'Cached:' | awk '{print $2}')"
+              };;
+        temp) {
+                echo "Disk Temperature: $(smartctl -a /dev/sda | grep 'Temperature' | awk '{print $10}')" # sudo apt install smartmontools
+              };;
+        *) out_check_opt;;
+     esac
+}
+#---------------------------------------------
+# Function for killing processes - Fill
+kill_f () {
+opt=$1
+     case $opt in
+        load) {
+                echo "Disk Load: $(iostat -d | grep 'sda' | awk '{print $2}')" # sudo apt install sysstat
+              };;
+        space) {
+                echo "Available disk space: $(df -h | grep '/dev/sda1' | awk '{print $4}')"
+              };;
+        latency) {
+                echo "Disk Latency: $(iostat -d | grep 'sda' | awk '{print $10}')" # sudo apt install sysstat
+              };;
+        errors) {
+                echo "Disk Errors: $(smartctl -a /dev/sda | grep 'Errors' | awk '{print $2}')" # sudo apt install smartmontools
+              };;
+        cache) {
+                echo "Disk Cache Utilization: $(cat /proc/meminfo | grep 'Cached:' | awk '{print $2}')"
+              };;
+        temp) {
+                echo "Disk Temperature: $(smartctl -a /dev/sda | grep 'Temperature' | awk '{print $10}')" # sudo apt install smartmontools
               };;
         *) out_check_opt;;
      esac
@@ -215,41 +339,89 @@ done
 
        -d | --disks)
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
-          disks_f $2
+          if [ "$output_option" = true ]; then
+            if [ -n "$output_file" ]; then
+               echo "DISK $2 OUTPUT:" >> "$output_file"
+               info "$(disk_f $2)" >> "$output_file"
+            else
+              echo "Error: Missing output file parameter for -o option" >&2
+              exit 1
+            fi
+          else
+            echo "DISK $2 OUTPUT:"
+            info "$(disk_f $2)"
+          fi
           shift 2
         else
-          echo "Error: Missing disks parameter" >&2
-          exit 1
+          echo "DISK system information:"
+          info "$(df -h)"
+          shift 1
         fi
         ;;
 
       -n | --network)
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
-          network_f $2
+          if [ "$output_option" = true ]; then
+            if [ -n "$output_file" ]; then
+               echo "NETWORK $2 OUTPUT:" >> "$output_file"
+               info "$(network_f $2)" >> "$output_file"
+            else
+              echo "Error: Missing output file parameter for -o option" >&2
+              exit 1
+            fi
+          else
+            echo "NETWORK $2 OUTPUT:"
+            info "$(network_f $2)"
+          fi
           shift 2
         else
-          echo "Error: Missing network parameter" >&2
-          exit 1
+          echo "NETWORK system information:"
+          info "$(ifconfig)"
+          shift 1
         fi
         ;;
 
       -la | --loadaverage)
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
-          loadaverage_f $2
+          if [ "$output_option" = true ]; then
+            if [ -n "$output_file" ]; then
+               echo "Loadaverage $2 OUTPUT:" >> "$output_file"
+               info "$(loadaverage_f $2)" >> "$output_file"
+            else
+              echo "Error: Missing output file parameter for -o option" >&2
+              exit 1
+            fi
+          else
+            echo "Loadaverage $2 OUTPUT:"
+            info "$(loadaverage_f $2)"
+          fi
           shift 2
         else
-          echo "Error: Missing loadaverage parameter" >&2
-          exit 1
+          echo "Loadavarage system information:"
+          info "$(df -h)" # Fix
+          shift 1
         fi
         ;;
 
       -k | --kill)
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
-          kill_f $2
+          if [ "$output_option" = true ]; then
+            if [ -n "$output_file" ]; then
+               echo "OUTPUT:" >> "$output_file"
+               info "$(kill_f $2)" >> "$output_file"
+            else
+              echo "Error: Missing output file parameter for -o option" >&2
+              exit 1
+            fi
+          else
+            echo "OUTPUT:"
+            info "$(kill_f $2)"
+          fi
           shift 2
         else
-          echo "Error: Missing kill process parameter" >&2
-          exit 1
+          echo "Kill function:"
+          info "$(kill --help)"
+          shift 1
         fi
         ;;
 
