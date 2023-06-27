@@ -41,8 +41,17 @@ OPTIONS:
     - cache                             Disk cache utilization
     - temp                              Disk temperature
   -n,   --network                       Info about network
+      suboptions:
+      - bandw                           Network bandwidth for certain interface
+      - err                             Errors and Discarded Packets on this interface
+      - conn                            Connection State of certain interface
+      - ip                              IP addressing and configuration for certain interface
   -la,  --loadaverage                   Info about system loadaverage
-  -k,   --kill                          Send kill signal to process
+      suboptions:
+      - 1                               Load average last 1 minute
+      - 5                               Load average last 5 minutes
+      - 15                              Load average last 15 minutes
+  -k,   --kill                          Send kill signal to process (PID)
   -o,   --output                        Save script results to the disk
   -h,   --help                          Help
 
@@ -171,24 +180,19 @@ opt=$1
 # Function for output information about Network interfaces - Fill
 network_f () {
 opt=$1
+int=$2
      case $opt in
-        load) {
-                echo "Disk Load: $(iostat -d | grep 'sda' | awk '{print $2}')" # sudo apt install sysstat
+        bandw) {
+                echo "Network bandwidth: $(ip -s -h link show $int)" # sudo apt-get install iproute2
               };;
-        space) {
-                echo "Available disk space: $(df -h | grep '/dev/sda1' | awk '{print $4}')"
+        err) {
+                echo "Errors and Discarded Packets: $(ip -s -s -h link show $int)" # sudo apt-get install iproute2
               };;
-        latency) {
-                echo "Disk Latency: $(iostat -d | grep 'sda' | awk '{print $10}')" # sudo apt install sysstat
+        conn) {
+                echo "Connection State: $(netstat -tunap | grep "ESTABLISHED" | grep "$int")"
               };;
-        errors) {
-                echo "Disk Errors: $(smartctl -a /dev/sda | grep 'Errors' | awk '{print $2}')" # sudo apt install smartmontools
-              };;
-        cache) {
-                echo "Disk Cache Utilization: $(cat /proc/meminfo | grep 'Cached:' | awk '{print $2}')"
-              };;
-        temp) {
-                echo "Disk Temperature: $(smartctl -a /dev/sda | grep 'Temperature' | awk '{print $10}')" # sudo apt install smartmontools
+        ip) {
+                echo "IP addressing and configuration: $(ip addr show $int)" # sudo apt-get install iproute2
               };;
         *) out_check_opt;;
      esac
@@ -198,52 +202,29 @@ opt=$1
 loadaverage_f () {
 opt=$1
      case $opt in
-        load) {
-                echo "Disk Load: $(iostat -d | grep 'sda' | awk '{print $2}')" # sudo apt install sysstat
+        1) {
+                echo "Load average last 1 minute: $(uptime | awk -F'load average: ' '{split($2, load, ", "); print load[1]}')"
               };;
-        space) {
-                echo "Available disk space: $(df -h | grep '/dev/sda1' | awk '{print $4}')"
+        5) {
+                echo "Load average last 5 minutes: $(uptime | awk -F'load average: ' '{split($2, load, ", "); print load[2]}')"
               };;
-        latency) {
-                echo "Disk Latency: $(iostat -d | grep 'sda' | awk '{print $10}')" # sudo apt install sysstat
-              };;
-        errors) {
-                echo "Disk Errors: $(smartctl -a /dev/sda | grep 'Errors' | awk '{print $2}')" # sudo apt install smartmontools
-              };;
-        cache) {
-                echo "Disk Cache Utilization: $(cat /proc/meminfo | grep 'Cached:' | awk '{print $2}')"
-              };;
-        temp) {
-                echo "Disk Temperature: $(smartctl -a /dev/sda | grep 'Temperature' | awk '{print $10}')" # sudo apt install smartmontools
+        15) {
+                echo "Load average last 15 minutes: $(uptime | awk -F'load average: ' '{split($2, load, ", "); print load[3]}')"
               };;
         *) out_check_opt;;
      esac
 }
 #---------------------------------------------
-# Function for killing processes - Fill
-kill_f () {
-opt=$1
-     case $opt in
-        load) {
-                echo "Disk Load: $(iostat -d | grep 'sda' | awk '{print $2}')" # sudo apt install sysstat
-              };;
-        space) {
-                echo "Available disk space: $(df -h | grep '/dev/sda1' | awk '{print $4}')"
-              };;
-        latency) {
-                echo "Disk Latency: $(iostat -d | grep 'sda' | awk '{print $10}')" # sudo apt install sysstat
-              };;
-        errors) {
-                echo "Disk Errors: $(smartctl -a /dev/sda | grep 'Errors' | awk '{print $2}')" # sudo apt install smartmontools
-              };;
-        cache) {
-                echo "Disk Cache Utilization: $(cat /proc/meminfo | grep 'Cached:' | awk '{print $2}')"
-              };;
-        temp) {
-                echo "Disk Temperature: $(smartctl -a /dev/sda | grep 'Temperature' | awk '{print $10}')" # sudo apt install smartmontools
-              };;
-        *) out_check_opt;;
-     esac
+out_check_opt () {
+cat << EOF
+Invalid parameters, use command help
+To show help you can use following commands:
+  ./mon.sh --help
+  or
+  ./mon.sh -h
+  or
+  ./mon.sh
+EOF
 }
 #---------------------------------------------
 if [ -z "${1+x}" ] || [ $1 = '--help' ] || [ $1 = '-h' ]
@@ -259,8 +240,13 @@ else
 for (( i=1; i<=$#; i++ )); do
   if ([[ "${!i}" == "-o" ]] || [[ "${!i}" == "--output" ]]) && (( i+1 <= $# )); then
     output_option=true
-    eval "output_file=\${$((i+1))}"
-    break
+    if [ "${2:0:1}" != "-" ] && [ "$((i+1))" != " " ]; then
+      eval "output_file=\${$((i+1))}"
+      break
+    else
+      echo "Error: Missing output file parameter for -o option" >&2
+      exit 1
+    fi
   fi
 done
 
@@ -363,20 +349,30 @@ done
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
           if [ "$output_option" = true ]; then
             if [ -n "$output_file" ]; then
-               echo "NETWORK $2 OUTPUT:" >> "$output_file"
-               info "$(network_f $2)" >> "$output_file"
+              if [ -n "${3+x}" ]; then
+                echo "NETWORK $2 $3 OUTPUT:" >> "$output_file"
+                info "$(network_f $2 $3)" >> "$output_file"
+              else
+                echo "Error: Missing interface parameter" >&2
+                exit 1
+              fi
             else
               echo "Error: Missing output file parameter for -o option" >&2
               exit 1
             fi
           else
-            echo "NETWORK $2 OUTPUT:"
-            info "$(network_f $2)"
+            if [ -n "${3+x}" ]; then
+              echo "NETWORK $2 OUTPUT:"
+              info "$(network_f $2 $3)"
+            else
+              echo "Error: Missing interface parameter" >&2
+              exit 1
+            fi
           fi
-          shift 2
+          shift 3
         else
           echo "NETWORK system information:"
-          info "$(ifconfig)"
+          info "$(ip addr)"
           shift 1
         fi
         ;;
@@ -398,30 +394,18 @@ done
           shift 2
         else
           echo "Loadavarage system information:"
-          info "$(df -h)" # Fix
+          info "$(uptime | awk -F'load average: ' '{split($2, load, ", "); print "Last 1 minute: " load[1] "\nLast 5 minutes: " load[2] "\nLast 15 minutes: " load[3]}')"
           shift 1
         fi
         ;;
 
       -k | --kill)
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
-          if [ "$output_option" = true ]; then
-            if [ -n "$output_file" ]; then
-               echo "OUTPUT:" >> "$output_file"
-               info "$(kill_f $2)" >> "$output_file"
-            else
-              echo "Error: Missing output file parameter for -o option" >&2
-              exit 1
-            fi
-          else
-            echo "OUTPUT:"
-            info "$(kill_f $2)"
-          fi
+          info "$(kill $2)"
           shift 2
         else
-          echo "Kill function:"
-          info "$(kill --help)"
-          shift 1
+          echo "Error: Missing PID for KILL utility" >&2
+          exit 1
         fi
         ;;
 
@@ -439,9 +423,9 @@ done
   eval set -- "$PARAMS"
 
   if [ -n "$output_file" ]; then
-     success "Результат сохранен в файл: $output_file"
+     success "All results were saved to: $output_file"
   fi
 
-  success "Done!"
+  success "Script had been finished!"
   }
 fi
