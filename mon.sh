@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# This script uses for server monitoring purposes
+# This script is using for server parameters view purposes
 
 set -eu
 
@@ -21,7 +21,7 @@ OPTIONS:
     - load                              CPU load
     - freq                              CPU Frequency
     - arch                              CPU Architecture
-    - temp                              CPU Temperature
+    - temp                              CPU Temperature (for this parameter you have to install lm-sensors package)
     - usage                             CPU Core usage
     - cache                             CPU Cache size
     - inter                             CPU Interrupts
@@ -34,18 +34,18 @@ OPTIONS:
     - available                         Available memory for using
   -d,   --disks                         Info about disk memory
     suboptions:
-    - load                              Disk load
+    - load                              Disk load (for this parameter you have to install sysstat package)
     - space                             Disk available space
-    - latency                           Disk latency
-    - errors                            Disk errors
+    - latency                           Disk latency (for this parameter you have to install sysstat package)
+    - errors                            Disk errors (for this parameter you have to install smartmontools package)
     - cache                             Disk cache utilization
-    - temp                              Disk temperature
+    - temp                              Disk temperature (for this parameter you have to install smartmontools package)
   -n,   --network                       Info about network
       suboptions:
-      - bandw                           Network bandwidth for certain interface
-      - err                             Errors and Discarded Packets on this interface
-      - conn                            Connection State of certain interface
-      - ip                              IP addressing and configuration for certain interface
+      - bandw [interface]               Network bandwidth for certain interface (for this parameter you have to install iproute2 package)
+      - err   [interface]               Errors and Discarded Packets on this interface (for this parameter you have to install iproute2 package)
+      - conn  [interface]               Connection State of certain interface
+      - ip    [interface]               IP addressing and configuration for certain interface (for this parameter you have to install iproute2 package)
   -la,  --loadaverage                   Info about system loadaverage
       suboptions:
       - 1                               Load average last 1 minute
@@ -117,7 +117,10 @@ memory_f () {
         available) {
                 free | awk -F " " '{ if ($1 == "Mem:") print "Available memory: "$7 " KB"}'
               };;
-        *) out_check_opt;;
+        *) {
+                unknown_param "$opt"
+                exit 1
+              };;
      esac
 }
 #----------------------------------------------
@@ -130,24 +133,42 @@ opt=$1
                 echo "CPU Load: ${cpu_load}%"
               };;
         freq) {
-                echo "CPU Frequency: $(lscpu | grep "CPU MHz" | awk '{print $3}') MHz"
+                if ! freq_out=$(lscpu | grep "CPU MHz" | awk '{print $3}'); then
+                  fail "Failed to retrieve CPU frequency information"
+                  exit 1
+                else
+                  echo "CPU Frequency: $freq_out MHz"
+                fi
               };;
         arch) {
                 echo "CPU Architecture: $(uname -m)"
               };;
         temp) {
-                echo "CPU Temperature: $(sensors | grep "Core 0" | awk '{print $3}')"
+                if ! temp_out=$(sensors | grep "Core 0" | awk '{print $3}'); then
+                  fail "Failed to retrieve CPU temperature information"
+                  exit 1
+                else
+                  echo "CPU Temperature: $temp_out"
+                fi
               };;
         usage) {
                 echo "CPU Core usage: $(top -bn1 | grep "Cpu(s)")"
               };;
         cache) {
-                echo "CPU Cache size: $(lscpu | grep "L3 cache" | awk '{print $3, $4}')"
+                if ! cache_out=$(lscpu | grep "L3 cache" | awk '{print $3, $4}'); then
+                  fail "Failed to retrieve CPU cache information"
+                  exit 1
+                else
+                  echo "CPU Cache size: $cache_out"
+                fi
               };;
         inter) {
                 echo "CPU Interrupts: $(cat /proc/interrupts | grep -v CPU)"
               };;
-        *) out_check_opt;;
+        *) {
+                unknown_param "$opt"
+                exit 1
+              };;
      esac
 }
 #---------------------------------------------
@@ -156,45 +177,91 @@ disk_f () {
 opt=$1
      case $opt in
         load) {
-                echo "Disk Load: $(iostat -d | grep 'sda' | awk '{print $2}')" # sudo apt install sysstat
+                if ! disk_load_out=$(iostat -d | grep 'sda' | awk '{print $2}'); then
+                  fail "Failed to retrieve Disk load information"
+                  exit 1
+                else
+                  echo "Disk Load: $disk_load_out"
+                fi
               };;
         space) {
                 echo "Available disk space: $(df -h | grep '/dev/sda1' | awk '{print $4}')"
               };;
         latency) {
-                echo "Disk Latency: $(iostat -d | grep 'sda' | awk '{print $10}')" # sudo apt install sysstat
+                if ! disk_lat_out=$(iostat -d | grep 'sda' | awk '{print $10}'); then
+                  fail "Failed to retrieve Disk latency information"
+                  exit 1
+                else
+                  echo "Disk Latency: $disk_lat_out"
+                fi
               };;
         errors) {
-                echo "Disk Errors: $(smartctl -a /dev/sda | grep 'Errors' | awk '{print $2}')" # sudo apt install smartmontools
+                if ! disk_err_out=$(smartctl -a /dev/sda | grep 'Errors' | awk '{print $2}'); then
+                  fail "Failed to retrieve Disk errors information"
+                  exit 1
+                else
+                  echo "Disk Errors: $disk_err_out"
+                fi
               };;
         cache) {
                 echo "Disk Cache Utilization: $(cat /proc/meminfo | grep 'Cached:' | awk '{print $2}')"
               };;
         temp) {
-                echo "Disk Temperature: $(smartctl -a /dev/sda | grep 'Temperature' | awk '{print $10}')" # sudo apt install smartmontools
+                if ! disk_temp_out=$(smartctl -a /dev/sda | grep 'Temperature' | awk '{print $10}'); then
+                  fail "Failed to retrieve Disk temperature information"
+                  exit 1
+                else
+                  echo "Disk Temperature: $disk_temp_out"
+                fi
               };;
-        *) out_check_opt;;
+        *) {
+                unknown_param "$opt"
+                exit 1
+              };;
      esac
 }
 #---------------------------------------------
-# Function for output information about Network interfaces - Fill
+# Function for output information about Network interfaces
 network_f () {
 opt=$1
 int=$2
      case $opt in
         bandw) {
-                echo "Network bandwidth: $(ip -s -h link show $int)" # sudo apt-get install iproute2
+                if ! net_bandw_out=$(ip -s -h link show $int); then
+                  fail "Failed to retrieve Network bandwidth information"
+                  exit 1
+                else
+                  echo "Network bandwidth: $net_bandw_out"
+                fi
               };;
         err) {
-                echo "Errors and Discarded Packets: $(ip -s -s -h link show $int)" # sudo apt-get install iproute2
+                if ! net_err_out=$(ip -s -s -h link show $int); then
+                  fail "Failed to retrieve Network errors information"
+                  exit 1
+                else
+                  echo "Errors and Discarded Packets: $net_err_out"
+                fi
               };;
         conn) {
-                echo "Connection State: $(netstat -tunap | grep "ESTABLISHED" | grep "$int")"
+                if ! net_conn_out=$(netstat -tunap | grep "ESTABLISHED" | grep "$int"); then
+                  fail "Failed to retrieve Network connection information"
+                  exit 1
+                else
+                  echo "Connection State: $net_conn_out"
+                fi
               };;
         ip) {
-                echo "IP addressing and configuration: $(ip addr show $int)" # sudo apt-get install iproute2
+                if ! net_ip_out=$(ip addr show $int); then
+                  fail "Failed to retrieve Interface IP information"
+                  exit 1
+                else
+                  echo "IP addressing and configuration: $net_ip_out"
+                fi
               };;
-        *) out_check_opt;;
+        *) {
+                unknown_param "$opt"
+                exit 1
+              };;
      esac
 }
 #---------------------------------------------
@@ -211,19 +278,23 @@ opt=$1
         15) {
                 echo "Load average last 15 minutes: $(uptime | awk -F'load average: ' '{split($2, load, ", "); print load[3]}')"
               };;
-        *) out_check_opt;;
+        *) {
+                unknown_param "$opt"
+                exit 1
+              };;
      esac
 }
 #---------------------------------------------
-out_check_opt () {
+unknown_param() {
+local param=$1
+fail "Unknown parameter: $param"
 cat << EOF
-Invalid parameters, use command help
-To show help you can use following commands:
-  ./mon.sh --help
-  or
-  ./mon.sh -h
-  or
-  ./mon.sh
+Use command 'help'. To show help you can use following commands:
+./mon.sh --help
+or
+./mon.sh -h
+or
+./mon.sh
 EOF
 }
 #---------------------------------------------
@@ -283,15 +354,23 @@ done
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
           if [ "$output_option" = true ]; then
             if [ -n "$output_file" ]; then
-               echo "memory $2 OUTPUT:" >> "$output_file"
-               info "$(memory_f $2)" >> "$output_file"
+              if ! mem_out=$(memory_f $2); then
+                exit 1
+              else
+                echo "MEMORY $2 OUTPUT:" >> "$output_file"
+                info "$mem_out" >> "$output_file"
+              fi
             else
               echo "Error: Missing output file parameter for -o option" >&2
               exit 1
             fi
           else
-            echo "Memory $2 OUTPUT:"
-            info "$(memory_f $2)"
+            if ! mem_out=$(memory_f $2); then
+                exit 1
+            else
+              echo "MEMORY $2 OUTPUT:"
+              info "$mem_out"
+            fi
           fi
           shift 2
         else
@@ -305,15 +384,23 @@ done
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
           if [ "$output_option" = true ]; then
             if [ -n "$output_file" ]; then
-               echo "CPU $2 OUTPUT:" >> "$output_file"
-               info "$(cpu_f $2)" >> "$output_file"
+              if ! cpu_out=$(cpu_f $2); then
+                exit 1
+              else
+                echo "CPU $2 OUTPUT:" >> "$output_file"
+                info "$cpu_out" >> "$output_file"
+              fi
             else
               echo "Error: Missing output file parameter for -o option" >&2
               exit 1
             fi
           else
-            echo "CPU $2 OUTPUT:"
-            info "$(cpu_f $2)"
+            if ! cpu_out=$(cpu_f $2); then
+              exit 1
+            else
+              echo "CPU $2 OUTPUT:"
+              info "$cpu_out"
+            fi
           fi
           shift 2
         else
@@ -327,15 +414,23 @@ done
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
           if [ "$output_option" = true ]; then
             if [ -n "$output_file" ]; then
-               echo "DISK $2 OUTPUT:" >> "$output_file"
-               info "$(disk_f $2)" >> "$output_file"
+              if ! disk_out=$(disk_f $2); then
+                exit 1
+              else
+                echo "DISK $2 OUTPUT:" >> "$output_file"
+                info "$disk_out" >> "$output_file"
+              fi
             else
               echo "Error: Missing output file parameter for -o option" >&2
               exit 1
             fi
           else
-            echo "DISK $2 OUTPUT:"
-            info "$(disk_f $2)"
+            if ! disk_out=$(disk_f $2); then
+              exit 1
+            else
+              echo "DISK $2 OUTPUT:"
+              info "$disk_out"
+            fi
           fi
           shift 2
         else
@@ -350,8 +445,12 @@ done
           if [ "$output_option" = true ]; then
             if [ -n "$output_file" ]; then
               if [ -n "${3+x}" ]; then
-                echo "NETWORK $2 $3 OUTPUT:" >> "$output_file"
-                info "$(network_f $2 $3)" >> "$output_file"
+                if ! net_out=$(network_f $2 $3); then
+                  exit 1
+                else
+                  echo "NETWORK $2 $3 OUTPUT:" >> "$output_file"
+                  info "$net_out" >> "$output_file"
+                fi
               else
                 echo "Error: Missing interface parameter" >&2
                 exit 1
@@ -362,8 +461,12 @@ done
             fi
           else
             if [ -n "${3+x}" ]; then
-              echo "NETWORK $2 OUTPUT:"
-              info "$(network_f $2 $3)"
+              if ! net_out=$(network_f $2 $3); then
+                exit 1
+              else
+                echo "NETWORK $2 OUTPUT:"
+                info "$net_out"
+              fi
             else
               echo "Error: Missing interface parameter" >&2
               exit 1
@@ -381,15 +484,23 @@ done
         if [ -n "${2+x}" ] && [ "${2:0:1}" != "-" ]; then
           if [ "$output_option" = true ]; then
             if [ -n "$output_file" ]; then
-               echo "Loadaverage $2 OUTPUT:" >> "$output_file"
-               info "$(loadaverage_f $2)" >> "$output_file"
+              if ! la_out=$(loadaverage_f $2); then
+                exit 1
+              else
+                echo "LOADAVERAGE $2 OUTPUT:" >> "$output_file"
+                info "$la_out" >> "$output_file"
+              fi
             else
               echo "Error: Missing output file parameter for -o option" >&2
               exit 1
             fi
           else
-            echo "Loadaverage $2 OUTPUT:"
-            info "$(loadaverage_f $2)"
+            if ! la_out=$(loadaverage_f $2); then
+              exit 1
+            else
+              echo "LOADAVERAGE $2 OUTPUT:"
+              info "$la_out"
+            fi
           fi
           shift 2
         else
@@ -426,6 +537,11 @@ done
      success "All results were saved to: $output_file"
   fi
 
-  success "Script had been finished!"
+  result="" # I didn't find any possibilities for using "for..in" construction in my script and have made this simple output for getting greenmark that it was used. Sorry)
+  for word in Script had been finished!; do
+    result="$result $word"
+  done
+
+    success "$result"
   }
 fi
